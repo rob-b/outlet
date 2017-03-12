@@ -1,7 +1,6 @@
 import falcon
 import money
 import braintree
-from braintree.test.nonces import Nonces
 from voluptuous import Schema, Required, All
 from outlet import db
 from sumtypes import sumtype, constructor, match
@@ -41,6 +40,7 @@ transaction_schema = Schema({
     Required('user_id'): All(valid_user()),
     Required('account_id'): All(valid_account()),
     Required('amount'): valid_money(),
+    Required('nonce'): str,
 })
 
 
@@ -48,7 +48,7 @@ def after_create_transaction(req, resp, resource):
     result = req.context.get('result_type')
     if not result:
         return
-    result = get_result(result)
+    result = match_result(result)
     resp.status = falcon.HTTP_201
     req.context['result'] = {'data': result}
 
@@ -60,14 +60,15 @@ class Result:
 
 
 @match(Result)
-class get_result:
+class match_result:
     def Failure(msg): raise falcon.HTTPBadRequest(msg)
 
     def Success(value): return value
 
 
-def create_account_transaction(session, user_id, amount, account_id):
-    at = db.AccountTransactions(session, account_id)
+def create_account_transaction(params):
+    at = db.AccountTransactions(params.session, params.account_id)
+    amount = params.amount
     if at.exceeds_daily_limit(amount):
         retval = Result.Failure("Transaction would exceed day's usage")
     elif at.exceeds_monthly_limit(amount):
@@ -77,23 +78,24 @@ def create_account_transaction(session, user_id, amount, account_id):
     elif at.exceeds_max_balance(amount):
         retval = Result.Failure("Transaction would exceed maximum balance")
     else:
-        retval = braintree_transaction(session, user_id, amount, account_id)
+        retval = braintree_transaction(params)
     return retval
 
 
-def braintree_transaction(session, user_id, amount, account_id, nonce=None):
-    nonce = nonce if nonce else Nonces.Transactable
+def braintree_transaction(params):
     # NOTE: this is very slow, should really kick off to a job
+    amount = params.amount.amount
     result = braintree.Transaction.sale({
-        "amount": amount.amount,
-        "payment_method_nonce": nonce,
+        "amount": amount,
+        "payment_method_nonce": params.nonce,
         "options": {
           "submit_for_settlement": True
         }
     })
     if result.is_success:
-        db.new_transaction(session, user_id, amount.amount, account_id)
-        retval = Result.Success("Added {}".format(amount.amount))
+        db.new_transaction(params.session, params.user_id,
+                           amount, params.account_id)
+        retval = Result.Success("Added {}".format(amount))
     else:
-        retval = Result.Failure("Braintree error")
+        retval = Result.Failure("Payment error: {}".format(result.message))
     return retval

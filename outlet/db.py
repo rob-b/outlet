@@ -50,7 +50,8 @@ class AccountTransactions:
 
     def total(self):
         if self._account is None:
-            q = self.session.query(Account).filter(Account.id == self.account_id)
+            q = (self.session.query(Account)
+                 .filter(Account.id == self.account_id))
             self._account = q.one()
         return self._account.amount
 
