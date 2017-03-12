@@ -13,7 +13,7 @@ class TransactionResource:
         except Invalid as err:
             raise falcon.HTTPBadRequest(str(err))
 
-        req.context['result_type'] = services.create_user_transaction(
+        req.context['result_type'] = services.create_account_transaction(
             self.session,
             doc['user_id'],
             services.GBP(doc['amount']),

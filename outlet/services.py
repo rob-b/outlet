@@ -15,14 +15,14 @@ class GBP(money.Money):
         super().__init__(amount=amount, currency='GBP')
 
 
-def user():
+def valid_user():
     def f(u):
         if not (isinstance(u, int) and u in users):
             raise ValueError("User id either invalid or does not exist")
     return f
 
 
-def account():
+def valid_account():
     def f(a):
         session = db.Session()
         inner = session.query(db.Account).filter(db.Account.id == a)
@@ -38,8 +38,8 @@ def valid_money():
 
 
 transaction_schema = Schema({
-    Required('user_id'): All(user()),
-    Required('account_id'): All(account()),
+    Required('user_id'): All(valid_user()),
+    Required('account_id'): All(valid_account()),
     Required('amount'): valid_money(),
 })
 
@@ -66,33 +66,34 @@ class get_result:
     def Success(value): return value
 
 
-def create_user_transaction(session, user_id, amount, account_id):
-    # - maximum £500 worth of loads per day
-    # - maximum £800 worth of loads per 30 days
-    # - maximum £2000 worth of loads per 365 days
-    # - maximum balance at any time £1000
-    ut = db.UserTransactions(session, user_id)
-    if ut.for_days(0) >= 500:
-        retval = Result.Failure("Exceeded day's usage")
-    elif ut.for_days(30) >= 800:
-        retval = Result.Failure("Exceeded months's usage")
-    elif ut.for_days(365) >= 2000:
-        retval = Result.Failure("Exceeded annual usage")
-    elif not(1000 >= ut.total() > -1):
-        retval = Result.Failure("Exceeded maximum balance")
+def create_account_transaction(session, user_id, amount, account_id):
+    at = db.AccountTransactions(session, account_id)
+    if at.exceeds_daily_limit(amount):
+        retval = Result.Failure("Transaction would exceed day's usage")
+    elif at.exceeds_monthly_limit(amount):
+        retval = Result.Failure("Transaction would exceed months's usage")
+    elif at.exceeds_yearly_limit(amount):
+        retval = Result.Failure("Transaction would exceed annual usage")
+    elif at.exceeds_max_balance(amount):
+        retval = Result.Failure("Transaction would exceed maximum balance")
     else:
+        retval = braintree_transaction(session, user_id, amount, account_id)
+    return retval
 
-        # NOTE: this is very slow, should really kick off to a job
-        result = braintree.Transaction.sale({
-            "amount": amount.amount,
-            "payment_method_nonce": Nonces.Transactable,
-            "options": {
-              "submit_for_settlement": True
-            }
-        })
-        if not result.is_success:
-            1/0
-        session.add(db.new_transaction(user_id, amount.amount, account_id))
+
+def braintree_transaction(session, user_id, amount, account_id, nonce=None):
+    nonce = nonce if nonce else Nonces.Transactable
+    # NOTE: this is very slow, should really kick off to a job
+    result = braintree.Transaction.sale({
+        "amount": amount.amount,
+        "payment_method_nonce": nonce,
+        "options": {
+          "submit_for_settlement": True
+        }
+    })
+    if result.is_success:
+        db.new_transaction(session, user_id, amount.amount, account_id)
         retval = Result.Success("Added {}".format(amount.amount))
-
+    else:
+        retval = Result.Failure("Braintree error")
     return retval
