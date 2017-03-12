@@ -19,7 +19,7 @@ class TransactionParams:
 class TransactionResource:
     @falcon.after(services.after_create_transaction)
     def on_post(self, req, resp):
-        doc = req.context['doc']
+        doc = req.context.get('doc', {})
         try:
             services.transaction_schema(doc)
         except Invalid as err:

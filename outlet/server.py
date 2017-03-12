@@ -1,13 +1,23 @@
+import os
 import sys
 import falcon
 from requestlogger import WSGILogger, ApacheFormatter
 from logging import StreamHandler
-from outlet import middleware
-from outlet import db
-from outlet import resources
 
 
 def make_app():
+    try:
+        os.environ['DB_URL']
+    except KeyError:
+        print("You must set DB_URL environment variable")
+        return
+
+    # we don't try to import anything that relies on session until after we've
+    # confirmed the required envvar exists
+    from outlet import db
+    from outlet import middleware
+    from outlet import resources
+
     outlet = resources.TransactionResource()
     client = resources.ClientResource()
     test = resources.TestResource()

@@ -1,3 +1,4 @@
+import os
 import decimal
 import datetime
 from sqlalchemy import (create_engine, Column, Integer, DateTime, String,
@@ -80,8 +81,14 @@ def new_transaction(session, user_id, amount, account_id):
     account.amount = account.amount + amount
 
 
+def new_account(session):
+    account = Account(amount=0, user_id=1001)
+    session.add(account)
+    return account
+
+
 def make_engine():
-    db_uri = 'postgresql://game@/outlet'
+    db_uri = os.environ['DB_URL']
     return create_engine(db_uri, echo=True)
 
 
@@ -94,7 +101,7 @@ def make_session():
 def make_db():
     Base.metadata.create_all(make_engine())
     session = make_session()
-    session.add(Account(amount=0, user_id=1001))
+    new_account(session)
     session.commit()
 
 
